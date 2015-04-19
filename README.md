@@ -12,9 +12,7 @@ If this sounds familiar then it is time for database sharding.
 
 Main goal of sharding is to distribute your clients data across multiple database machines, that can also be in different physical locations.
 
-
-
-##Porzadki
+##Understanding your data
 
 Zanim przejdziesz do shardingu czeka Ciebie mnóstwo przygotowań.
 Shardowane środowisko wymaga bardzo klarownego zrozumienia charakteru danych i czasami przeprojektowania schematu.
@@ -60,31 +58,36 @@ Jednak gdy dane są potrzebne na obu shardach można stworzyć tabele lustrzane 
 Osobnym przypadkiem naruszenia rozłączności danych użytkowników są błędy w aplikacji.
 Możesz mieć 
 
+##Schema fixes
 
+###Not reachable users data
+###Connection between users
+###Tree structure
+###Foreign key to not unique columns
+###Loops
+###Triggers
 
-jailbreak pomiedzy kontami
-dane domyslne i ich synchronizacja
-dane pol-domyslne i synchronizacja
-relacje drzewa?
+##Data fixes
+
+###Synchronization of default data
+(+pol domyslne)
 hint: named lock
-unikac FK do nieunikalnych kolumn, niejednoznacznosc
-uzupelnic FK
-zapetlenia (nie da sie ich zrzucic w formie dumpa)
-trigger
 
-##Zaplanowanie shardow
-centralna baza do dispatchu, latwa do przebudowania
-unikac podejscia nowi klienci na nowym shardzie (starzy maja historie/retencje/uzycie zaawansowanych funkcji)
-zapewnienie wiecznej rozdzielnosci ID
-uzycie offsetu i skoku zamiast centralizacji
-partycjonowanie tabel
-replikacje niezalezne dla kazdego sharda
-biginty, 
+##Setting up environment
 
-##Zaplanowanie kodu
+###Dispatch shard
+###User shards
+(similiar power, independent replicas, bigints)
+###Mutually exclusive PKs
+(offsetu i skoku zamiast centralizacji)
+###Even distribution of users
+(starzy maja historie/retencje/uzycie zaawansowanych funkcji)
+
+##Code changes
 rezerwacje procesow
 dispatch
-randomizacja shardow (nowi userzy, dane defaultowe)
+nowi userzy
+dane defaultowe
 
 ##Migracja
 exodus - jak uzywac
