@@ -3,23 +3,71 @@
 Tools and comprehensive guide to split monolithic database into shards.
 
 
-##Intro
+## Intro
 
-Most of the companies start their business using monolithic database. And when they got successful they quickly become victims of this design.
+Most of the companies start their businesses using monolithic database. And when they got successful they quickly become victims of this design.
 Single machine cannot be scaled up infinitely and single internet connection becomes overloaded with traffic from whole world.
 Also good product attracts big clients who alone can generate significant system load causing slowdowns for the rest.
 If this sounds familiar then it is time for database sharding.
 
 Main goal of sharding is to distribute your clients data across multiple database machines, that can also be in different physical locations.
 
-##Understanding your data
+## Understanding your data
 
-Zanim przejdziesz do shardingu czeka Ciebie mnóstwo przygotowań.
-Shardowane środowisko wymaga bardzo klarownego zrozumienia charakteru danych i czasami przeprojektowania schematu.
+Your data can be divided into three groups:
 
-Dane użytkownika to rekordy w bazie, które będziesz przenosił na różne instancje baz danych.
-Dane domyślne to rekordy do których wiążą dane użytkownika.
-Dane globalne to wszystkie pozostałe rekordy.
+* User data. Rows that belongs to given user. They form a relational tree starting from `users` table (it is such a common naming that it will be used throughout this guide). Those records will be moved together to a single shard,
+
+* Default data. Rows that are referenced by user data. They should be identical on all shards.
+
+* Global data. Tables that are not related to user or default data.
+
+Lets consider following schema.
+(MySQL slang is used but the same principles apply for PostrgeSQL and other engines)
+
+```sql
+CREATE TABLE countries (
+	id integer unsigned not null auto_increment,
+	name text NOT NULL,
+	UNIQUE KEY (name)
+) ENGINE=InnoDB;
+
+CREATE TABLE users (
+	id integer unsigned not null auto_increment,
+	country_id integer unsigned not null,
+	login text not null,
+	password text not null,
+	FOREIGN KEY (country_id) REFERENCES countries (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE visits
+	id integer unsigned not null auto_increment,
+	user_id integer unsigned not null,
+	when timestamp not null,
+	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE skins
+	id integer unsigned not null auto_increment,
+	user_id integer unsigned default null,
+	color text not null,
+	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE TABLE blacklisted_credit_cards (
+	hash text NOT NULL,
+	UNIQUE KEY (hash)
+) ENGINE=InnoDB;
+
+```
+
+Every row in `users` and `visits` table belongs to user data. They can be identified by descending through every parent-to-child relations starting from main user row.
+User data references `countries` table, so rows there will fall into default data category. They can be identified as every remaining rows reachable through any relations starting from main user row.
+And `blacklisted_credit_cards` is obviously global data, not reachable through any relation from `users`.
+
+But what about `skins` table? In this example you provide few predefined interface skins to choose from but user can define his own. 
+
+
 
 Uwaga: Rekordy, nie tabele. (przykład)
 
