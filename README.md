@@ -27,35 +27,38 @@ Lets consider following schema.
 
 ```sql
 CREATE TABLE countries (
-	id integer unsigned not null auto_increment,
-	name text NOT NULL,
-	UNIQUE KEY (name)
+  	id integer unsigned NOT NULL AUTO_INCREMENT,
+  	name varchar(128) NOT NULL,
+  	PRIMARY KEY (id),
+  	UNIQUE KEY (name)
 ) ENGINE=InnoDB;
 
 CREATE TABLE users (
-	id integer unsigned not null auto_increment,
-	country_id integer unsigned not null,
-	login text not null,
-	password text not null,
+  	id integer unsigned NOT NULL AUTO_INCREMENT,
+  	country_id integer unsigned NOT NULL,
+  	login varchar(128) NOT NULL,
+  	password varchar(64) NOT NULL,
+  	PRIMARY KEY (id),
 	FOREIGN KEY (country_id) REFERENCES countries (id)
 ) ENGINE=InnoDB;
 
-CREATE TABLE visits
-	id integer unsigned not null auto_increment,
-	user_id integer unsigned not null,
-	when timestamp not null,
-	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+CREATE TABLE visits (
+  	user_id integer unsigned NOT NULL,
+  	logged_in timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  	logged_out timestamp NULL DEFAULT NULL,
+  	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE skins
-	id integer unsigned not null auto_increment,
-	user_id integer unsigned default null,
-	color text not null,
-	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+CREATE TABLE skins (
+  	id integer unsigned NOT NULL AUTO_INCREMENT,
+  	user_id integer unsigned DEFAULT NULL,
+  	color bigint unsigned NOT NULL,
+  	PRIMARY KEY (id),
+  	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE blacklisted_credit_cards (
-	hash text NOT NULL,
+	hash char(32) NOT NULL,
 	UNIQUE KEY (hash)
 ) ENGINE=InnoDB;
 
