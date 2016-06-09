@@ -1,11 +1,24 @@
 # EXODUS
 
-Tools and comprehensive guide to split monolithic database into shards.
+Comprehensive guide and tools to split monolithic database into shards.
 
 
 ## Intro
 
-Most of the companies start their businesses using monolithic database. And when they got successful they quickly become victims of this design.
+When you suddenly get this brilliant idea, the revolutionary game-changer, all you want to do is to immediately hack some proof of concept to start small project flame from spark of creativity. So I'll leave you alone for now, with your third mug of coffee and birds chirping first morning songs outside of window...
+
+...Few years later we meet again. Your proof of concept has grown into mature, recognizable product. Congratulations! But why the sad face? Your clients are complaining that your product is slow and unresponsive? They want more features? They generate more data? And you cannot do anything about it despite the fact that you bought most shiny, expensive database server that is available?
+
+Looks like design daemons from the past paid you a visit. And it is already too late.
+
+YOU'VE PROVEN TOO TOUGH FOR HELL TO CONTAIN
+
+
+Foreseeing  of users,  size of their data, increment complexity of features, 
+During that first night you haven't thought that your user base will grow, that average amount 
+
+Almost every project starts with single, monolithic database.
+And when it gets successful they quickly become victims of this design.
 Single machine cannot be scaled up infinitely and single internet connection becomes overloaded with traffic from whole world.
 Also good product attracts big clients who alone can generate significant system load causing slowdowns for the rest.
 If this sounds familiar then it is time for database sharding.
@@ -70,10 +83,6 @@ And `blacklisted_credit_cards` is obviously global data, not reachable through a
 
 But what about `skins` table? In this example you provide few predefined interface skins to choose from but user can define his own. 
 
-
-
-Uwaga: Rekordy, nie tabele. (przykład)
-
 Dane użytkowników muszą być rozłączne. Typowym przypadkiem gdzie ta zasada jest naruszona jest afiliacja.
 
 ```sql
@@ -111,6 +120,7 @@ Możesz mieć
 
 ##Schema fixes
 
+###Nullable opaquity
 ###Not reachable users data
 ###Connection between users
 ###Tree structure
