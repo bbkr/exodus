@@ -47,27 +47,53 @@ So what is the plan?
 
 In monolithic database design data classification is irrelevant but it is the most crucial part of sharding design. Your data can be divided into three groups:
 
-* Client data - what belongs to given client. Will be moved together to a single shard.
-* Context data - what is referenced by all clients data. Must be identical on all shards.
-* Neutral data -  everything else. Should be moved outside of shards.
+* Client data - what belongs to given client. Those records will be moved together to a single shard.
+* Context data - what is referenced by all clients data or another context data. Those records must be identical on all shards.
+* Neutral data - everything else. Should be moved out of shards.
 
-Let's do quick exercise:
+Let's assume your product is car rental software and do a quick exercise:
 
 ```
-  +--------------+
-  | clients      |
-  +--------------+
-  | id           |
-  | login        |
-  | password     |
-  | countries_id |
-  +--------------+
 
+  +----------+      +------------+      +-----------+
+  | clients  |      | cities     |      | countries |
+  +----------+      +------------+      +-----------+
+  | id       |   +--| id         |   +--| id        |
+  | city_id  |>--+  | country_id |>--+  | name      |
+  | password |   |  | name       |      +-----------+
+  | login    |   |  +------------+
+  +----------+   |
+       |         |
+       |         +------+
+      / \               |     +-------+
+  +---------------+     |     | cars  |
+  | rentals       |     |     +-------+
+  +---------------+     |  +--| id    |
++-| id            |     |  |  | vin   |
+| | user_id       |     |  |  | brand |
+| | start_city_id |>----+  |  | model |
+| | start_date    |     |  |  +-------+
+| | end_city_id   |>----+  |
+| | end_date      |        |
+| | car_id        |>-------+   +--------------------+
+| | cost          |            | anti_fraud_systems |
+| +---------------+            +--------------------+
+|                              | id                 |--+
+|      +-----------+           | name               |  |
+|      | tracking  |           +--------------------+  |
+|      +-----------+                                   |
++-----<| rental_id |                                   |
+       | latitude  |     +--------------------------+  |
+       | longitude |     | blacklisted_credit_cards |  |
+       | timestamp |     +--------------------------+  |
+       +-----------+     | anti_fraud_system_id     |>-+
+                         | number                   |
+                         +--------------------------+
+```
 
+To find client data you must start in some root. In our example this is `clients` table. Then follow every parent-to-child relation as . In this case 
 
-
-
-
+So you start at root of your clients data. That is `clients` table. And 
 Lets consider following schemaeverything else.
 (MySQL slang is used but the same principles apply for PostrgeSQL and other engines)
 
