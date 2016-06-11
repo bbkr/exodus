@@ -9,33 +9,66 @@ When you suddenly get this brilliant idea, the revolutionary game-changer, all y
 
 ...Few years later we meet again. Your proof of concept has grown into mature, recognizable product. Congratulations! But why the sad face? Your clients are complaining that your product is slow and unresponsive? They want more features? They generate more data? And you cannot do anything about it despite the fact that you bought most shiny, expensive database server that is available?
 
-Looks like design daemons from the past paid you a visit. And it is already too late.
+When you were hacking your project on day 0 you were not thinking about long term scalability. All you wanted to do is to create working prototype as fast as possible. So single database design was easiest, fastest and most obvious to use. You haven't thought back then, that single machine cannot be scaled up infinitely. And now it is already too late.
 
-YOU'VE PROVEN TOO TOUGH FOR HELL TO CONTAIN
+LOOKS LIKE YOU'RE STUCK ON THE SHORES OF [monolithic design database] HELL.
+THE ONLY WAY OUT IS THROUGH...
+(DOOM quote)
+
+## Sharding to the rescue!
+
+Sharding is the process of distributing your clients data across multiple databases (called shards).
+By doing so you will be able to:
+
+* Scale your whole system by adding more cheap database machines.
+* Add more complex features that uses a lot of database CPU, I/O and RAM resources.
+* Load balance your environment by moving clients between shards.
+* Handle exceptionally large clients by dedicating resources to them.
+* Create data centers in different countries to reduce network lag for clients and be more compliant with local data processing laws.
+* Reduce risk of global system failures
+* Do faster crash recovery due to smaller size of databases.
+
+But if you already have single (monolithic) database this process is like converting your motorcycle into a car... while riding.
+
+## Outline
+
+This is step-by-step guide of a very tricky process. And the worst thing you can do is to panic because your product is collapsing under its own weight and you have a lots of pressure from clients. Whole process may take weeks, even months. Will use significant amount of human and time resources. And will pause new features development. Be prepared for that. And do not rush to the next stage until you are sure absolutely sure the current one is completed.
+
+So what is the plan?
+
+* You will have to look at your data and fix a lot of schema design errors.
+* Then set up new hardware and software environment components.
+* Adapt your product to sharding logic.
+* Do actual data migration.
+* Adapt your internal tools and procedures.
+* Resume product development.
+
+## Understand your data
+
+In monolithic database design data classification is irrelevant but it is the most crucial part of sharding design. Your data can be divided into three groups:
+
+* Client data - what belongs to given client. Will be moved together to a single shard.
+* Context data - what is referenced by all clients data. Must be identical on all shards.
+* Neutral data -  everything else. Should be moved outside of shards.
+
+Let's do quick exercise:
+
+```
+  +--------------+
+  | clients      |
+  +--------------+
+  | id           |
+  | login        |
+  | password     |
+  | countries_id |
+  +--------------+
 
 
-Foreseeing  of users,  size of their data, increment complexity of features, 
-During that first night you haven't thought that your user base will grow, that average amount 
 
-Almost every project starts with single, monolithic database.
-And when it gets successful they quickly become victims of this design.
-Single machine cannot be scaled up infinitely and single internet connection becomes overloaded with traffic from whole world.
-Also good product attracts big clients who alone can generate significant system load causing slowdowns for the rest.
-If this sounds familiar then it is time for database sharding.
 
-Main goal of sharding is to distribute your clients data across multiple database machines, that can also be in different physical locations.
 
-## Understanding your data
 
-Your data can be divided into three groups:
-
-* User data. Rows that belongs to given user. They form a relational tree starting from `users` table (it is such a common naming that it will be used throughout this guide). Those records will be moved together to a single shard,
-
-* Default data. Rows that are referenced by user data. They should be identical on all shards.
-
-* Global data. Tables that are not related to user or default data.
-
-Lets consider following schema.
+Lets consider following schemaeverything else.
 (MySQL slang is used but the same principles apply for PostrgeSQL and other engines)
 
 ```sql
