@@ -47,10 +47,6 @@ So what is the plan?
 
 In monolithic database design data classification is irrelevant but it is the most crucial part of sharding design. Your tables can be divided into three groups: client, context and neutral.
 
-* Client data - what belongs to given client. Those records will be moved together to a single shard.
-* Context data - what is referenced by all clients data or another context data. Those records must be identical on all shards.
-* Neutral data - everything else. Should be moved out of shards.
-
 Let's assume your product is car rental software and do a quick exercise:
 
 ```
@@ -58,19 +54,19 @@ Let's assume your product is car rental software and do a quick exercise:
   +----------+      +------------+      +-----------+
   | clients  |      | cities     |      | countries |
   +----------+      +------------+      +-----------+
-  | id       |   +--| id         |   +--| id        |
-  | city_id  |>--+  | country_id |>--+  | name      |
-  | password |   |  | name       |      +-----------+
-  | login    |   |  +------------+
-  +----------+   |
-       |         |
-       |         +------+
-      / \               |     +-------+
-  +---------------+     |     | cars  |
-  | rentals       |     |     +-------+
-  +---------------+     |  +--| id    |
-+-| id            |     |  |  | vin   |
-| | user_id       |     |  |  | brand |
++-| id       |   +--| id         |   +--| id        |
+| | city_id  |>--+  | country_id |>--+  | name      |
+| | password |   |  | name       |      +-----------+
+| | login    |   |  +------------+
+| +----------+   |
+|                +------+
++--------------------+  |
+                     |  |     +-------+
+  +---------------+  |  |     | cars  |
+  | rentals       |  |  |     +-------+
+  +---------------+  |  |  +--| id    |
++-| id            |  |  |  |  | vin   |
+| | client_id     |>-+  |  |  | brand |
 | | start_city_id |>----+  |  | model |
 | | start_date    |     |  |  +-------+
 | | end_city_id   |>----+  |
@@ -80,7 +76,7 @@ Let's assume your product is car rental software and do a quick exercise:
 | +---------------+            +--------------------+
 |                              | id                 |--+
 |      +-----------+           | name               |  |
-|      | tracking  |           +--------------------+  |
+|      | tracks    |           +--------------------+  |
 |      +-----------+                                   |
 +-----<| rental_id |                                   |
        | latitude  |     +--------------------------+  |
@@ -90,60 +86,30 @@ Let's assume your product is car rental software and do a quick exercise:
                          | number                   |
                          +--------------------------+
 ```
-### Clients data
 
-To find client data you must start in some root. In our example this is `clients` table. Then follow every parent-to-child relation (only in this direction) as deep as you can. In this case we descend into `rentals` and then from `rentals` into `tracking`.
+### Client tables
 
-Client data is atomic For single client all of his rows will be moved 
+They contain data owned by your clients. To find them you must start in some root table - `clients` in our example. Then follow every parent-to-child relation (only in this direction) as deep as you can. In this case we descend into `rentals` and then from `rentals` further to `tracks`. So our client tables are: `clients`, `rentals` and `tracks`.
 
-So you start at root of your clients data. That is `clients` table. And 
-Lets consider following schemaeverything else.
-(MySQL slang is used but the same principles apply for PostrgeSQL and other engines)
+Single client owns subset of rows from those tables, and those rows will always be moved together in a single transaction between shards.
 
-```sql
-CREATE TABLE countries (
-  	id integer unsigned NOT NULL AUTO_INCREMENT,
-  	name varchar(128) NOT NULL,
-  	PRIMARY KEY (id),
-  	UNIQUE KEY (name)
-) ENGINE=InnoDB;
+### Context tables
 
-CREATE TABLE users (
-  	id integer unsigned NOT NULL AUTO_INCREMENT,
-  	country_id integer unsigned NOT NULL,
-  	login varchar(128) NOT NULL,
-  	password varchar(64) NOT NULL,
-  	PRIMARY KEY (id),
-	FOREIGN KEY (country_id) REFERENCES countries (id)
-) ENGINE=InnoDB;
+They put your clients data in context. To find them follow every child-to-parent relation (only in this direction) from every client table as shallow as you can. Stop ascending if table is already classified. In this case we ascend from `clients` to `cities` and from `cities` further to `countries`. Then from `rentals` we can ascend to `clients` (already classified), `cities` (already classified) and `cars`. And from `tracks` we can ascend into `rentals` (already classified). So our context tables are: `cities`, `countries` and `cars`.
 
-CREATE TABLE visits (
-  	user_id integer unsigned NOT NULL,
-  	logged_in timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  	logged_out timestamp NULL DEFAULT NULL,
-  	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+Context tables should be synchronized across all shards.
 
-CREATE TABLE skins (
-  	id integer unsigned NOT NULL AUTO_INCREMENT,
-  	user_id integer unsigned DEFAULT NULL,
-  	color bigint unsigned NOT NULL,
-  	PRIMARY KEY (id),
-  	FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+### Neutral tables
 
-CREATE TABLE blacklisted_credit_cards (
-	hash char(32) NOT NULL,
-	UNIQUE KEY (hash)
-) ENGINE=InnoDB;
+Everything else. They must not be reachable from any client or context table through any relation. However there may be relations between them. So our neutral tables are: `anti_fraud_systems` and `blacklisted_credit_cards`.
 
-```
+Neutral tables should be moved outside of shards.
 
-Every row in `users` and `visits` table belongs to user data. They can be identified by descending through every parent-to-child relations starting from main user row.
-User data references `countries` table, so rows there will fall into default data category. They can be identified as every remaining rows reachable through any relations starting from main user row.
-And `blacklisted_credit_cards` is obviously global data, not reachable through any relation from `users`.
 
-But what about `skins` table? In this example you provide few predefined interface skins to choose from but user can define his own. 
+
+
+
+
 
 Dane użytkowników muszą być rozłączne. Typowym przypadkiem gdzie ta zasada jest naruszona jest afiliacja.
 
