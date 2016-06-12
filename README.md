@@ -45,7 +45,7 @@ So what is the plan?
 
 ## Understand your data
 
-In monolithic database design data classification is irrelevant but it is the most crucial part of sharding design. Your data can be divided into three groups:
+In monolithic database design data classification is irrelevant but it is the most crucial part of sharding design. Your tables can be divided into three groups: client, context and neutral.
 
 * Client data - what belongs to given client. Those records will be moved together to a single shard.
 * Context data - what is referenced by all clients data or another context data. Those records must be identical on all shards.
@@ -90,8 +90,11 @@ Let's assume your product is car rental software and do a quick exercise:
                          | number                   |
                          +--------------------------+
 ```
+### Clients data
 
-To find client data you must start in some root. In our example this is `clients` table. Then follow every parent-to-child relation as . In this case 
+To find client data you must start in some root. In our example this is `clients` table. Then follow every parent-to-child relation (only in this direction) as deep as you can. In this case we descend into `rentals` and then from `rentals` into `tracking`.
+
+Client data is atomic For single client all of his rows will be moved 
 
 So you start at root of your clients data. That is `clients` table. And 
 Lets consider following schemaeverything else.
