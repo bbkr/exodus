@@ -24,7 +24,7 @@ By doing so you will be able to:
 * Add more complex features that uses a lot of database CPU, I/O and RAM resources.
 * Load balance your environment by moving clients between shards.
 * Handle exceptionally large clients by dedicating resources to them.
-* Create data centers in different countries to reduce network lag for clients and be more compliant with local data processing laws.
+* Utilize data centers in different countries to reduce network lag for clients and be more compliant with local data processing laws.
 * Reduce risk of global system failures
 * Do faster crash recovery due to smaller size of databases.
 
@@ -95,7 +95,7 @@ Single client owns subset of rows from those tables, and those rows will always 
 
 ### Context tables
 
-They put your clients data in context. To find them follow every child-to-parent relation (only in this direction) from every client table as shallow as you can. Stop ascending if table is already classified. In this case we ascend from `clients` to `cities` and from `cities` further to `countries`. Then from `rentals` we can ascend to `clients` (already classified), `cities` (already classified) and `cars`. And from `tracks` we can ascend into `rentals` (already classified). So our context tables are: `cities`, `countries` and `cars`.
+They put your clients data in context. To find them follow every child-to-parent relation (only in this direction) from every client table as shallow as you can. Skip if table is already classified. In this case we ascend from `clients` to `cities` and from `cities` further to `countries`. Then from `rentals` we can ascend to `clients` (already classified), `cities` (already classified) and `cars`. And from `tracks` we can ascend into `rentals` (already classified). So our context tables are: `cities`, `countries` and `cars`.
 
 Context tables should be synchronized across all shards.
 
@@ -105,8 +105,42 @@ Everything else. They must not be reachable from any client or context table thr
 
 Neutral tables should be moved outside of shards.
 
+### Checkpoint
 
+Take any tool that can visualize your database in form of diagram. Print it and pin it on the wall.
+Then take markers in 3 different colors - each for every table type -  and start marking tables in your schema.
 
+If you have some tables not connected due to technical reasons (for example MySQL partitioned tables or TokuDB tables do not support foreign keys), draw this relation and assume it is there.
+
+If you are not certain about specific table leave it unmarked for now.
+
+Done? Good :)
+
+### Q&A
+
+***Q:*** Is it a good idea to cut all relations between client and context tables, so only two types - client and neutral - remain?
+
+***A:*** You will save a bit of work because no synchronization of context data across all shards will be required.
+But at the same time any analytics will be nearly impossible. For example even simple task to find which car was rented most times will require software script to do the join.
+Also there won't be any protection against software bugs, for example it will be possible to rent a car that does not even exist.
+
+There are two cases when converting context table to neutral table is justified:
+
+* Context data is really huge or takes huge amount of transfer to synchronize. We're talking gigabytes here.
+* Reference is "weak". And that means it only exists for some debug purposes and is not used in business logic. For example if we present different version of website to user based on country he is from - that makes "hard" references between `clients`, `cities` and `countries`, so `cities` and `countries` should remain as context tables.
+
+In every other case it is very bad idea to make neutral data out of context data.
+
+***Q:*** Is it a good idea to shard only big tables and leave all small tables together on monolithic database?
+
+***A:*** In our example you have one puffy table - `tracks`. It keeps GPS trail of every car rental and will grow really fast. So if you only shard this data you will save a lot of work because there will be only small application changes required. But in real world you will have 100 puffy tables and that means 100 places in application logic when you have to juggle database handles to locate all client data. That also means you won't be able to split your clients between many data centers. Also you won't be able to reduce downtime costs to 1/nth of the amount of shards if some data corruption in monolithic database occurs and recovery is required. And analytics argument mentioned above also applies here.
+
+It is bad idea to do such sub-sharding. May seem easy and fast - but the sooner you do proper sharding that includes all of your clients data, the better.
+
+## Fix your schema
+
+There are few design patterns that are perfectly fine in monolithic database design but are no-go in sharding.
+Those parts must be fixed or redesigned.
 
 
 
