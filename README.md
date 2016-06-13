@@ -56,8 +56,8 @@ Let's assume your product is car rental software and do a quick exercise:
   +----------+      +------------+      +-----------+
 +-| id       |   +--| id         |   +--| id        |
 | | city_id  |>--+  | country_id |>--+  | name      |
-| | password |   |  | name       |      +-----------+
-| | login    |   |  +------------+
+| | login    |   |  | name       |      +-----------+
+| | password |   |  +------------+
 | +----------+   |
 |                +------+
 +--------------------+  |
@@ -140,8 +140,96 @@ It is bad idea to do such sub-sharding. May seem easy and fast - but the sooner 
 ## Fix your schema
 
 There are few design patterns that are perfectly fine in monolithic database design but are no-go in sharding.
-Those parts must be fixed or redesigned.
 
+### Lack of foreign key
+
+Aside from obvious risk of referencing nonexistent records this issue can leave junk when you will migrate clients between shards later for load balancing.
+Fix is trivial - add foreign key if there should be one.
+
+The only exception is when it cannot be added due to technical limitations, such as usage of TokuDB or partitioned MySQL tables that simply do not support foreign keys.
+Skip those, I'll tell you how to deal with them during data migration later.
+
+### Direct connection between clients
+
+Because clients may be located on different shards their rows may not point at each other.
+Typical case where it happens is affiliation.
+
+
+```
++-----------------------+
+| clients               |
++-----------------------+
+| id                    |------+
+| login                 |      |
+| password              |      |
+| referred_by_client_id |>-----+
++-----------------------+
+```
+
+To fix this issue you must remove foreign key and rely on software instead to match those records.
+
+### Nested connection between clients
+
+Because clients may be located on different shards their rows may not reference another client (also indirectly).
+Typical case where it happens is post-and-comment discussion.
+
+
+```
+  +----------+        +------------+
+  | clients  |        | blog_posts |
+  +----------+        +------------+
++-| id       |---+    | id         |---+
+| | login    |   +---<| client_id  |   |
+| | password |        | text       |   |
+| +----------+        +------------+   |
+|                                      |
+|    +--------------+                  |
+|    | comments     |                  |
+|    +--------------+                  |
+|    | blog_post_id |>-----------------+
++---<| client_id    |
+     | text         |
+     +--------------+
+```
+
+First client posted something and second client commented it. This comment references two clients at the same time - second one directly and first one indirectly through `blog_posts` table.
+That means it will be impossible to satisfy both foreign keys in `comments` table if those clients are not in single database.
+
+To fix this you must choose which relation from table that refers to multiple clients is more important, remove the other foreign keys and rely on software instead to match those records.
+
+So in our example you may decide that relation between `comments` and `blog_posts` remains, relation between `comments` and `clients` is removed and you will use application logic to find which client wrote which comment.
+
+### Accidental connection between clients
+
+This is the same issue as nested connection but caused by application errors instead of intentional design.
+
+```
+                    +----------+
+                    | clients  |
+                    +----------+
++-------------------| id       |--------------------+
+|                   | login    |                    |
+|                   | password |                    |
+|                   +----------+                    |
+|                                                   |
+|  +-----------------+        +------------------+  |
+|  | blog_categories |        | blog_posts       |  |
+|  +-----------------+        +------------------+  |
+|  | id              |----+   | id               |  |
++-<| client_id       |    |   | client_id        |>-+
+   | name            |    +--<| blog_category_id |
+   +-----------------+        | text             |
+                              +------------------+
+```
+
+For example first client defined his own blog categories for his own blog posts.
+But lets say there was mess with www sessions or some caching mechanism and blog post of second client was accidentally assigned to category defined by first client.
+
+Those issues are ***extremely hard*** to find, because schema itself is perfectly fine and only data is damaged.
+
+TODO Exodus tool can help detect those.
+
+### 
 
 
 
