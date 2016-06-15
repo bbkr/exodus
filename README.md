@@ -101,27 +101,27 @@ Context tables should be synchronized across all shards.
 
 ### Neutral tables
 
-Everything else. They must not be reachable from any client or context table through any relation. However there may be relations between them. So our neutral tables are: `anti_fraud_systems` and `blacklisted_credit_cards`.
+Everything else. They must not be reachable from any client or context table through any relation. However, there may be relations between them. So our neutral tables are: `anti_fraud_systems` and `blacklisted_credit_cards`.
 
 Neutral tables should be moved outside of shards.
 
 ### Checkpoint
 
-Take any tool that can visualize your database in form of diagram. Print it and pin it on the wall.
+Take any tool that can visualize your database in the form of a diagram. Print it and pin it on the wall.
 Then take markers in 3 different colors - each for every table type -  and start marking tables in your schema.
 
 If you have some tables not connected due to technical reasons (for example MySQL partitioned tables or TokuDB tables do not support foreign keys), draw this relation and assume it is there.
 
-If you are not certain about specific table leave it unmarked for now.
+If you are not certain about specific table, leave it unmarked for now.
 
 Done? Good :)
 
 ### Q&A
 
-***Q:*** Is it a good idea to cut all relations between client and context tables, so only two types - client and neutral - remain?
+***Q:*** Is it a good idea to cut all relations between client and context tables, so that only two types - client and neutral - remain?
 
 ***A:*** You will save a bit of work because no synchronization of context data across all shards will be required.
-But at the same time any analytics will be nearly impossible. For example even simple task to find which car was rented most times will require software script to do the join.
+But at the same time any analytics will be nearly impossible. For example, even simple task to find which car was rented the most times will require software script to do the join.
 Also there won't be any protection against software bugs, for example it will be possible to rent a car that does not even exist.
 
 There are two cases when converting context table to neutral table is justified:
@@ -143,8 +143,8 @@ There are few design patterns that are perfectly fine in monolithic database des
 
 ### Lack of foreign key
 
-Aside from obvious risk of referencing nonexistent records this issue can leave junk when you will migrate clients between shards later for load balancing.
-Fix is trivial - add foreign key if there should be one.
+Aside from obvious risk of referencing nonexistent records, this issue can leave junk when you will migrate clients between shards later for load balancing.
+The fix is simple - add foreign key if there should be one.
 
 The only exception is when it cannot be added due to technical limitations, such as usage of TokuDB or partitioned MySQL tables that simply do not support foreign keys.
 Skip those, I'll tell you how to deal with them during data migration later.
@@ -227,7 +227,7 @@ But lets say there was mess with www sessions or some caching mechanism and blog
 
 Those issues are ***extremely hard*** to find, because schema itself is perfectly fine and only data is damaged.
 
-TODO Exodus tool can help detect those.
+TODO Exodus tool can help to detect those.
 
 ### Fake context data
 
