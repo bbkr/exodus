@@ -5,11 +5,11 @@ Comprehensive guide and tools to split monolithic database into shards.
 
 ## Intro
 
-When you suddenly get this brilliant idea, the revolutionary game-changer, all you want to do is to immediately hack some proof of concept to start small project flame from spark of creativity. So I'll leave you alone for now, with your third mug of coffee and birds chirping first morning songs outside of window...
+When you suddenly get this brilliant idea, the revolutionary game-changer, all you want to do is to immediately hack some proof of concept to start small project flame from spark of creativity. So I'll leave you alone for now, with your third mug of coffee and birds chirping first morning songs outside of the window...
 
-...Few years later we meet again. Your proof of concept has grown into mature, recognizable product. Congratulations! But why the sad face? Your clients are complaining that your product is slow and unresponsive? They want more features? They generate more data? And you cannot do anything about it despite the fact that you bought most shiny, expensive database server that is available?
+...Few years later we meet again. Your proof of concept has grown into a mature, recognizable product. Congratulations! But why the sad face? Your clients are complaining that your product is slow and unresponsive? They want more features? They generate more data? And you cannot do anything about it despite the fact that you bought most shiny, expensive database server that is available?
 
-When you were hacking your project on day 0 you were not thinking about long term scalability. All you wanted to do is to create working prototype as fast as possible. So single database design was easiest, fastest and most obvious to use. You haven't thought back then, that single machine cannot be scaled up infinitely. And now it is already too late.
+When you were hacking your project on day 0 you were not thinking about long term scalability. All you wanted to do was to create working prototype as fast as possible. So single database design was easiest, fastest and most obvious to use. You didn't think back then, that single machine cannot be scaled up infinitely. And now it is already too late.
 
 LOOKS LIKE YOU'RE STUCK ON THE SHORES OF [monolithic design database] HELL.
 THE ONLY WAY OUT IS THROUGH...
@@ -21,7 +21,7 @@ Sharding is the process of distributing your clients data across multiple databa
 By doing so you will be able to:
 
 * Scale your whole system by adding more cheap database machines.
-* Add more complex features that uses a lot of database CPU, I/O and RAM resources.
+* Add more complex features that use a lot of database CPU, I/O and RAM resources.
 * Load balance your environment by moving clients between shards.
 * Handle exceptionally large clients by dedicating resources to them.
 * Utilize data centers in different countries to reduce network lag for clients and be more compliant with local data processing laws.
@@ -32,7 +32,7 @@ But if you already have single (monolithic) database this process is like conver
 
 ## Outline
 
-This is step-by-step guide of a very tricky process. And the worst thing you can do is to panic because your product is collapsing under its own weight and you have a lots of pressure from clients. Whole process may take weeks, even months. Will use significant amount of human and time resources. And will pause new features development. Be prepared for that. And do not rush to the next stage until you are sure absolutely sure the current one is completed.
+This is step-by-step guide of a very tricky process. And the worst thing you can do is to panic because your product is collapsing under its own weight and you have a lots of pressure from clients. Whole process may take weeks, even months. Will use significant amount of human and time resources. And will pause new features development. Be prepared for that. And do not rush to the next stage until you are absolutely sure the current one is completed.
 
 So what is the plan?
 
@@ -229,7 +229,9 @@ Those issues are ***extremely hard*** to find, because schema itself is perfectl
 
 TODO Exodus tool can help detect those.
 
-### 
+### Fake context data
+
+
 
 
 
