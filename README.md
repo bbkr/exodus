@@ -137,7 +137,7 @@ In every other case it is very bad idea to make neutral data out of context data
 
 It is bad idea to do such sub-sharding. May seem easy and fast - but the sooner you do proper sharding that includes all of your clients data, the better.
 
-## Fix your schema
+## Fix your monolithic database
 
 There are few design patterns that are perfectly fine or acceptable in monolithic database design but are no-go in sharding.
 
@@ -381,7 +381,7 @@ Well, that looks wrong. Maybe let's group it by time and distance pair, which gi
 So depending how you combine indistinguishable rows from many nullable paths to get final row set, you may suffer either data duplication or data loss.
 
 You may say: Hey, that's easy - just select all rows through time path, then all rows from distance path that do not have `time_id`, then union both results.
-Unfortunately paths may be nullable somewhere earlier and several nullable paths may lead to table,
+Unfortunately paths may be nullable somewhere earlier and several nullable paths may lead to single table,
 which will produce bizarre logic to get indistinguishable rows set properly.
 
 To solve this issue make sure there is at least one not nullable path that leads to every client table (does not matter how many tables it goes through).
@@ -390,7 +390,7 @@ Extra foreign key should be added between `clients` and `part` in our example.
 TL;DR
 
 Q: How many legs does the horse have?
-A: Eight. Two front, two rear, two left, two right.
+A: Eight. Two front, two rear, two left and two right.
 
 Q: How many legs does the horse have?
 A: Four. Those attached to it.
@@ -431,15 +431,253 @@ Of course this causes a lot of weird bugs when trying to locate all rows that be
 To fix this issue just make sure every referenced column (or set of columns) is unique.
 They ***must not*** be nullable and ***must*** all be used as primary or unique key.
 
+### Self loops
+
+Rows in the same client table cannot be in direct relation.
+Typical case is expressing all kinds of tree or graph structures.
+
+```
++----------+
+| clients  |
++----------+
+| id       |----------------------+
+| login    |                      |
+| password |                      |
++----------+                      |
+                                  |
+          +--------------------+  |
+          | albums             |  |
+          +--------------------+  |
+      +---| id                 |  |
+      |   | client_id          |>-+
+      +--<| parent_album_id    |
+          | name               |
+          +--------------------+
+```
+
+This causes issues when client data is inserted into target shard.
+
+For example in our photo management software client has album with `id` = 2 as subcategory of album with `id` = 1.
+Then he flips this configuration, so that the album with `id` = 2 is on top.
+In such scenario if database returned client rows in default, primary key order
+then it won't be possible to insert album with `id` = 1 because it requires presence of album with `id` = 2.
+
+Yes, you can disable foreign key constraints to be able to insert self-referenced data in any order.
+But by doing so you may mask many errors - for example broken references to context data.
+
+For good sharding experience all relations between rows of the same table should be stored in separate table.
+
+```
++----------+
+| clients  |
++----------+
+| id       |----------------------+
+| login    |                      |
+| password |                      |
++----------+                      |
+                                  |
+          +--------------------+  |
+          | albums             |  |
+          +--------------------+  |
+  +-+=====| id                 |  |
+  | |     | client_id          |>-+
+  | |     | name               |
+  | |     +--------------------+
+  | |
+  | |    +------------------+
+  | |    | album_hierarchy  |
+  | |    +------------------+
+  | +---<| parent_album_id  |
+  +-----<| child_album_id   |
+         +------------------+ 
+```
+
+### Triggers
+
+Triggers cannot modify rows.
+Or roar too loud :)
+
+```
+            +----------+
+            | clients  |
+            +----------+
+ +----------| id       |------------------+
+ |          | login    |                  |
+ |          | password |                  |
+ |          +----------+                  |
+ |                                        |
+ |  +------------+        +------------+  |
+ |  | blog_posts |        | activities |  |
+ |  +------------+        +------------+  |
+ |  | id         |        | id         |  |
+ +-<| client_id  |        | client_id  |>-+
+    | content    |        | counter    |
+    +------------+        +------------+
+          :                      :
+          :                      :
+ (on insert post create or increase activity)
+```
+
+This is common design of triggers usage to automatically aggregate some statistics.
+Very useful and safe - doesn't matter which part of application adds new blog post,
+activities counter will always go up.
+
+However in sharding this causes a lot of trouble when inserting client data.
+Let's say he has 4 blog posts and 4 activities.
+If posts are inserted first they bump activity counter through trigger and we have collision in `activties` table due to unexpected row.
+When activities are inserted first they are unexpectedly increased by posts inserts later, ending with invalid 8 activities total.
+
+In sharding triggers can only be used if they do not modify data.
+For example it is OK to do sophisticated constraints using them.
+Triggers that modify data must be removed and their logic ported to application.
+
+### Checkpoint
+
+Check if there are any issues described above in your printed schema and fix them.
+
+And this is probably the most annoying part of sharding process
+as you will have to dig through a lot of code.
+Sometimes old, untested undocumented and unmaintained.
+
+When you are done your printed schema on the wall should not contain any unclassified tables.
+
+Ready for next step?
+
+## Prepare schema
+
+It is time to dump monolithic database complete schema (tables, triggers, views and functions/procedures) to the `shard_schema.sql` file and prepare for sharding environment initialization.
+
+### Separate neutral tables
+
+Move all tables that are marked as neutral from `shard_schema.sql` file to separate `neutral_schema.sql` file.
+Do not forget to also move triggers, views or procedures associated with them.
+
+### Bigints
+
+Every primary key on shard should be of `unsigned bigint` type.
+You do not have to modify your existing schema installed on monolithic database.
+Just edit `shard_schema.sql` file and massively replace all numeric primary and foreign keys to unsigned big integers.
+I'll explain later why this is needed.
+
+### Create schema for dispatcher
+
+Dispatcher tells on which shard specific client is located.
+Absolute minimum is to have table where you will keep client id and shard number.
+Save it to `dispatch_schema.sql` file.
+
+More complex dispatchers will be described later.
+
+### Dump common data
+
+From monolithic database dump data for neutral tables to `neutral_data.sql` file
+and for context tables to `context_data.sql` file.
+Watch out for tables order to avoid breaking foreign keys constraints.
+
+### Checkpoint
+
+You should have `shard_schema.sql`, `neutral_schema.sql`, `dispatch_schema.sql`, `neutral_data.sql` and `context_data.sql` files.
+
+At this point you should also freeze all schema and common data changes in your application until sharding is completed.
+
+## Set up environment
+
+Finally you can put all those new, shiny machines to good use.
+
+Typical sharding environment contains of:
+
+* Database for neutral data.
+* Database for dispatch.
+* Databases for shards.
+
+Each database should of course be replicated.
+
+### Database for neutral data
+
+Nothing fancy, just regular database.
+Install `neutral_schema.sql` and feed `neutral_data.sql` to it.
+
+Make separate user for application with read-only grants to read neutral data
+and separate user with read-write grants for managing data.
+
+### Database for dispatch
+
+Every time client logs in to your product you will have to find which shard he is located on.
+Make sure all data fits into RAM, have a huge connection pool available.
+And install `dispatch_schema.sql` to it.
+
+This is a weak point of all sharding designs.
+Should be off-loaded by various caches as much as possible.
+
+### Databases for shards
+
+Configuration of shard databases is pretty straightforward.
+For every shard just install `shard_schema.sql`, feed `context_data.sql` file and follow two more steps.
+
+### Databases for shards - users
+
+Remember that context tables should be identical on all shards.
+Therefore it is a good idea to have separate user with read-write grants for managing context data.
+Application user should have read-only access to context tables to prevent accidental context data change.
+
+This ideal design may be too difficult to maintain - every new table will require setting up separate grants.
+If you decide to go with single user make sure you will add some mechanism that monitors context data consistency across all shards.
+
+### Databases for shards - mutually exclusive primary keys
+
+Primary keys in client tables ***must be globally unique across whole product***.
+
+First of all - data split is a long process. Just pushing data between databases may take days or even weeks!
+And because of that it should be performed without any global downtime.
+So during monolithic to shard migration phase new rows will still be created in monolithic database
+and already migrated users will create rows on shards. Those rows must never collide.
+
+Second of all - sharding does not end there.
+Later on you will have to load balance shards, move client between different physical locations, backup and restore them if needed.
+So rows must never collide at any time of your product life.
+
+How to achieve that? Use offset and increment while generating your primary keys.
+
+MySQL has ready to use mechanism: 
+
+* auto_increment_increment - Set this global variable to 100 on all of your shards. That is also the maximum amount of shards you can have. Be generous here, as it will not be possible to change it later! You must have spare slots even if you don't have such amount of shards right now!
+* auto_increment_offset - Set this global value differently on all of your shards. First shard should get 1, second shard should get 2, and so on. Of course you cannot exceed value of auto_increment_increment.
+
+Now your first shard for any table will generate 1, 101, 201, 301, ... , 901, 1001, 1101 auto increments and second shard will generate 2, 102, 202, 302, ... , 902, 1002, 1102 auto increments.
+And that's all! Your new rows will never collide, doesn't matter which shard they were generated on and without any communication between shards needed.
+
+TODO: add recipes for another database types
+
+Now you should understand why I've told you to convert all numerical primary and foreign keys to unsigned big integers. The sequences will grow really fast, in our example 100x faster than on monolithic database.
+
+***Remember to set the same increment and corresponding offsets on replicas.*** Forgetting to do so will be lethal to whole sharding design.
+
+### Checkpoint
+
+Your database servers should be set up. Check routings from application, check user grants.
+And again - remember to have separate infrastructure configurations (in puppet for example) for shards and their replicas offsets.
+Do some failures simulations.
+
+And move to the next step :)
+
+### Q&A
+
+***Q:*** Can I do sharding without dispatch database? When client wants to log in I can just ask all shards for his data and use the one shard that will respond.
+
+***A:*** No. This may work when you start with three shards, but when you have 64 shards in 8 different data centers such fishing queries become impossible. Not to mention you will be very vulnerable to brute-force attacks - every password guess attempt will be multiplied by your application causing instant overload of the whole infrastructure.
+
+
+***Q:*** Can I use any no-SQL technology for dispatch and neutral databases?
+
+***A:*** Sure. You can use it instead of traditional SQL or as a supplementary cache.
+
+## Adapt code
+
+### Product
+
+Now your product can 
 
 
 
-
-###Tree structure
-###Loops
-###Triggers
-
-##Data fixes
 
 ###Synchronization of default data
 (+pol domyslne)
