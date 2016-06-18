@@ -139,7 +139,7 @@ It is bad idea to do such sub-sharding. May seem easy and fast - but the sooner 
 
 ## Fix your schema
 
-There are few design patterns that are perfectly fine in monolithic database design but are no-go in sharding.
+There are few design patterns that are perfectly fine or acceptable in monolithic database design but are no-go in sharding.
 
 ### Lack of foreign key
 
@@ -384,7 +384,7 @@ You may say: Hey, that's easy - just select all rows through time path, then all
 Unfortunately paths may be nullable somewhere earlier and several nullable paths may lead to table,
 which will produce bizarre logic to get indistinguishable rows set properly.
 
-To solve this issue make sure there is at least one not nullable path that leads to every client table.
+To solve this issue make sure there is at least one not nullable path that leads to every client table (does not matter how many tables it goes through).
 Extra foreign key should be added between `clients` and `part` in our example.
 
 TL;DR
@@ -395,11 +395,47 @@ A: Eight. Two front, two rear, two left, two right.
 Q: How many legs does the horse have?
 A: Four. Those attached to it.
 
+### Foreign key to not unique rows
+
+MySQL specific issue.
+
+```
+CREATE TABLE `foo` (
+  `id` int(10) unsigned DEFAULT NULL,
+  KEY `id` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+CREATE TABLE `bar` (
+  `foo_id` int(10) unsigned NOT NULL,
+  KEY `foo_id` (`foo_id`),
+  CONSTRAINT `bar_ibfk_1` FOREIGN KEY (`foo_id`) REFERENCES `foo` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+mysql> INSERT INTO `foo` (`id`) VALUES (1);
+Query OK, 1 row affected (0.01 sec)
+
+mysql> INSERT INTO `foo` (`id`) VALUES (1);
+Query OK, 1 row affected (0.00 sec)
+
+mysql> INSERT INTO `bar` (`foo_id`) VALUES (1);
+Query OK, 1 row affected (0.01 sec)
+```
+
+Which row from `foo` table is referenced by row in `bar` table?
+
+You don't know because behavior of foreign key constraint is defined as "it there any parent I can refer to?" instead of "do I have exactly one parent?".
+There are no direct row-to-row references as in other databases. And it's not a bug, it's a feature.
+
+Of course this causes a lot of weird bugs when trying to locate all rows that belong to given client, because results can be duplicated on JOINs.
+
+To fix this issue just make sure every referenced column (or set of columns) is unique.
+They ***must not*** be nullable and ***must*** all be used as primary or unique key.
+
+
 
 
 
 ###Tree structure
-###Foreign key to not unique columns
 ###Loops
 ###Triggers
 
