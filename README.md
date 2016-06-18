@@ -154,7 +154,6 @@ Skip those, I'll tell you how to deal with them during data migration later.
 Because clients may be located on different shards their rows may not point at each other.
 Typical case where it happens is affiliation.
 
-
 ```
 +-----------------------+
 | clients               |
@@ -172,7 +171,6 @@ To fix this issue you must remove foreign key and rely on software instead to ma
 
 Because clients may be located on different shards their rows may not reference another client (also indirectly).
 Typical case where it happens is post-and-comment discussion.
-
 
 ```
   +----------+        +------------+
@@ -203,6 +201,7 @@ So in our example you may decide that relation between `comments` and `blog_post
 
 This is the same issue as nested connection but caused by application errors instead of intentional design.
 
+
 ```
                     +----------+
                     | clients  |
@@ -229,52 +228,176 @@ Those issues are ***extremely hard*** to find, because schema itself is perfectl
 
 TODO Exodus tool can help to detect those.
 
-### Fake context data
+### Not reachable clients data
 
+Client tables must be reached exclusively by descending from root table through parent-to-child relations.
 
-
-
-
-Dane użytkowników muszą być rozłączne. Typowym przypadkiem gdzie ta zasada jest naruszona jest afiliacja.
-
-```sql
-CREATE TABLE users (
-    id bigint unsigned NOT NULL auto_increment,
-    PRIMARY KEY (id)
-) Engine = InnoDB;
-
-CREATE TABLE affiliation (
-    parent_users_id bigint unsigned NOT NULL,
-    child_users_id bigint unsigned NOT NULL,
-    FOREIGN KEY (parent_users_id) REFERENCES users (id),
-    FOREIGN KEY (child_users_id) REFERENCES users (id),
-    UNIQUE KEY (parent_users_id, child_users_id)
-) Engine = InnoDB;
-```
-
-Gdy tak powiązane konta trafią na różne shardy nie będzie możliwa migracja danych z powodu błędów kluczy obcych.
-Najprostszym rozwiązaniem jest usunięcie jednej z relacji i przechowywanie danych na shardzie jednego użytkownika.
 
 ```
-CREATE TABLE affiliation (
-    parent_users_id bigint unsigned NOT NULL,
-    child_users_id bigint unsigned NOT NULL,
-    FOREIGN KEY (parent_users_id) REFERENCES users (id), # zawsze przechowuj na shardzie rodzica
-    UNIQUE KEY (parent_users_id, child_users_id)
-) Engine = InnoDB;
+              +----------+
+              | clients  |
+              +----------+
++-------------| id       |
+|             | login    |
+|             | password |
+|             +----------+
+|
+|  +-----------+        +------------+
+|  | photos    |        | albums     |
+|  +-----------+        +------------+
+|  | id        |    +---| id         |
++-<| client_id |    |   | name       |
+   | album_id  |>---+   | created_at |
+   | file      |        +------------+
+   +-----------+
 ```
 
-Jednak gdy dane są potrzebne na obu shardach można stworzyć tabele lustrzane i duplikować dane.
+So we have photo management software this time and when client synchronizes photos from camera new album is created automatically for better import visualization.
+This is obvious issue even in monolithic database - when all photos from album are removed then it becomes zombie row.
+Won't be deleted automatically by cascade and cannot be matched with `client` anymore.
+In sharding this also causes misclassification of client table as context table.
+
+To fix this issue foreign key should be added from `albums` to `clients`.
+This may also fix classification for some tables below `albums`, if any.
+
+### Polymorphic data
+
+Table cannot be classified as two types at the same time.
+
+```
+              +----------+
+              | clients  |
+              +----------+
++-------------| id       |-------------+
+|             | login    |             |
+|             | password |             |
+|             +----------+         (nullable)
+|                                      |
+|  +-----------+        +-----------+  |
+|  | blogs     |        | skins     |  |
+|  +-----------+        +-----------+  |
+|  | id        |    +---| id        |  |
++-<| client_id |    |   | client_id |>-+
+   | skin_id   |>---+   | color     |
+   | title     |        +-----------+
+   +-----------+
+```
+
+In this product client can choose predefined skin for his blog.
+But can also define his own skin color and use it as well.
+
+Here single interface of `skins` table is used to access data of both client and context type.
+A lot of "let's allow client to customize that" features end up implemented this way.
+While being a smart hack - with no table schema duplication and only simple `WHERE client_id IS NULL OR client_id = 123` added to query to present both public and private templates for client - this may cause a lot of trouble in sharding.
+
+The fix is to go with dual foreign key design and separate tables. Create constraint (or trigger) that will protect against assigning blog to public and private skin at the same time. And write more complicated query to get blog skin color.
+
+```
+              +----------+
+              | clients  |
+              +----------+
++-------------| id       |
+|             | login    |
+|             | password |
+|             +----------+
+|
+|   +---------------+        +--------------+
+|   | private_skins |        | public_skins |
+|   +---------------+        +--------------+
+|   | id            |--+  +--| id           |
++--<| client_id     |  |  |  | color        |
+|   | color         |  |  |  +--------------+
+|   +---------------+  |  |    
+|                      |  |
+|                   (nullable)
+|                      |  |
+|                      |  +------+
+|                      +-----+   |
+|                            |   |
+|       +-----------------+  |   |
+|       | blogs           |  |   |
+|       +-----------------+  |   |
+|       | id              |  |   | 
++------<| client_id       |  |   |
+        | private_skin_id |>-+   |
+        | public_skin_id  |>-----+
+        | title           |
+        +-----------------+
+```
+
+However - this fix is optional. I'll show you how to deal with maintaining mixed data types in chapter about mutually exclusive IDs.
+It will be up to you to decide if you want less refactoring but more complicated synchronization.
+
+***Beware!*** Such fix may also accidentally cause another issue described below.
+
+### Opaque uniqueness (a.k.a. horse riddle)
+
+Every client table without unique constraint must be reachable by not nullable path of parent-to-child relations or at most single nullable path of parent-to-child relations.
+This is very tricky issue which may cause data loss or duplication during client migration to database shard.
+
+```
+              +----------+
+              | clients  |
+              +----------+
++-------------| id       |-------------+
+|             | login    |             |
+|             | password |             |
+|             +----------+             |
+|                                      |
+|  +-----------+        +-----------+  |
+|  | time      |        | distance  |  |
+|  +-----------+        +-----------+  |
+|  | id        |--+  +--| id        |  |
++-<| client_id |  |  |  | client_id |>-+
+   | amount    |  |  |  | amount    |
+   +-----------+  |  |  +-----------+
+                  |  |
+               (nullable)
+                  |  |
+                  |  |
+         +--------+  +---------+
+         |                     |
+         |   +-------------+   |
+         |   | parts       |   |
+         |   +-------------+   |
+         +--<| time_id     |   |
+             | distance_id |>--+
+             | name        |
+             +-------------+
+```
+
+This time our product is application that helps you with car maintenance schedule.
+Our clients car has 4 tires that must be replaced after 10 years or 100000km
+and 4 spark plugs that must be replaced after 100000km.
+So 4 indistinguishable rows for tires are added to `parts` table (they reference both `time` and `distance`)
+and 4 indistinguishable rows are added for spark plugs (they reference only `distance`).
+
+Now to migrate client to shard we have to find which rows from `parts` table does he own.
+By following relations through `time` table we will get 4 tires. But because this path is nullable at some point
+we are not sure if we found all records. And indeed, by following relations through `distance` table we found 4 tires and 4 spark plugs.
+Since this path is also nullable at some point we are not sure if we found all records.
+So we must combine result from time and distance paths, which gives us... 8 tires and 4 spark plugs?
+Well, that looks wrong. Maybe let's group it by time and distance pair, which gives us... 1 tire and 1 spark plug?
+So depending how you combine indistinguishable rows from many nullable paths to get final row set, you may suffer either data duplication or data loss.
+
+You may say: Hey, that's easy - just select all rows through time path, then all rows from distance path that do not have `time_id`, then union both results.
+Unfortunately paths may be nullable somewhere earlier and several nullable paths may lead to table,
+which will produce bizarre logic to get indistinguishable rows set properly.
+
+To solve this issue make sure there is at least one not nullable path that leads to every client table.
+Extra foreign key should be added between `clients` and `part` in our example.
+
+TL;DR
+
+Q: How many legs does the horse have?
+A: Eight. Two front, two rear, two left, two right.
+
+Q: How many legs does the horse have?
+A: Four. Those attached to it.
 
 
-Osobnym przypadkiem naruszenia rozłączności danych użytkowników są błędy w aplikacji.
-Możesz mieć 
 
-##Schema fixes
 
-###Nullable opaquity
-###Not reachable users data
-###Connection between users
 ###Tree structure
 ###Foreign key to not unique columns
 ###Loops
