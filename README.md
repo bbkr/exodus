@@ -610,6 +610,9 @@ Should be off-loaded by various caches as much as possible.
 
 ### Databases for shards
 
+They should all have the same power (CPU/RAM/IO) -
+this will speed things up because you can just randomly select shard for your new or migrated client without bothering with different hardware capabilities.
+
 Configuration of shard databases is pretty straightforward.
 For every shard just install `shard_schema.sql`, feed `context_data.sql` file and follow two more steps.
 
@@ -674,7 +677,18 @@ And move to the next step :)
 
 ### Product
 
-Now your product can 
+There will be additional step in your product. When user logs in then dispatch database must be asked for shard number first. Then you connect to this shard and... it works!
+Your code also will have to use separate database connection to access neutral data.
+And it will have to roll shard when new client registers and note this selection in dispatch database.
+
+That is the beauty of whole clients sharding - rest of your code is not aware of it.
+
+### Dispatch
+
+Dispatch logic should be 
+
+
+Minimal dispatch must know connection 
 
 
 
@@ -688,8 +702,7 @@ hint: named lock
 ###Dispatch shard
 ###User shards
 (similiar power, independent replicas, bigints)
-###Mutually exclusive PKs
-(offsetu i skoku zamiast centralizacji)
+
 ###Even distribution of users
 (starzy maja historie/retencje/uzycie zaawansowanych funkcji)
 
