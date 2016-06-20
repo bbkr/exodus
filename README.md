@@ -224,9 +224,7 @@ This is the same issue as nested connection but caused by application errors ins
 For example first client defined his own blog categories for his own blog posts.
 But lets say there was mess with www sessions or some caching mechanism and blog post of second client was accidentally assigned to category defined by first client.
 
-Those issues are ***extremely hard*** to find, because schema itself is perfectly fine and only data is damaged.
-
-TODO Exodus tool can help to detect those.
+Those issues are very hard to find, because schema itself is perfectly fine and only data is damaged.
 
 ### Not reachable clients data
 
@@ -518,11 +516,11 @@ Or roar too loud :)
  (on insert post create or increase activity)
 ```
 
-This is common design of triggers usage to automatically aggregate some statistics.
+This is common usage of a trigger to automatically aggregate some statistics.
 Very useful and safe - doesn't matter which part of application adds new blog post,
 activities counter will always go up.
 
-However in sharding this causes a lot of trouble when inserting client data.
+However, when sharding this causes a lot of trouble when inserting client data.
 Let's say he has 4 blog posts and 4 activities.
 If posts are inserted first they bump activity counter through trigger and we have collision in `activties` table due to unexpected row.
 When activities are inserted first they are unexpectedly increased by posts inserts later, ending with invalid 8 activities total.
@@ -657,7 +655,7 @@ Now you should understand why I've told you to convert all numerical primary and
 ### Checkpoint
 
 Your database servers should be set up. Check routings from application, check user grants.
-And again - remember to have separate infrastructure configurations (in puppet for example) for shards and their replicas offsets.
+And again - remember to have correct configurations (in puppet for example) for shards and their replicas offsets.
 Do some failures simulations.
 
 And move to the next step :)
@@ -678,45 +676,58 @@ And move to the next step :)
 ### Product
 
 There will be additional step in your product. When user logs in then dispatch database must be asked for shard number first. Then you connect to this shard and... it works!
-Your code also will have to use separate database connection to access neutral data.
+Your code will also have to use separate database connection to access neutral data.
 And it will have to roll shard when new client registers and note this selection in dispatch database.
 
-That is the beauty of whole clients sharding - rest of your code is not aware of it.
+That is the beauty of whole clients sharding - majority of your code is not aware of it.
+
+### Synchronization of common data
+
+If you modify neutral data this change should be propagated to every neutral database (you may have more of those in different physical locations).
+
+Same thing applies to context data on shard, but ***all auto increment columns must be forced***. This is because every shard will generate different sequence. When you execute ```INSERT INTO skins (color) VALUES ('#AA55BC')``` then shard 1 will assign different IDs for them than shard 2. And all client data that reference this language will be impossible to migrate between shards.
 
 ### Dispatch
 
-Dispatch logic should be 
+Dispatch serves two purposes. It allows you to find client on shard by some unique attribute (login, email, and so on)
+and it also helps to guarantee such uniqueness. So for example when new client is created then dispatch database must be asked if chosen login is available. Take an extra care of dispatch database. Off-load as much as you can by caching and schedule regular consistency checks between it and the shards.
 
+Things get complicated if you have shards in many data centers. Unfortunately I cannot give you universal algorithm of how to keep them in sync, this is too much application specific.
 
-Minimal dispatch must know connection 
+### Analytic tools
 
+Because your clients data will be scattered across multiple shard databases you will have to fix a lot of global queries used in analytical and statistical tools. What was trivial previously - for example `SELECT city.name, COUNT(*) AS amount FROM clients JOIN cities ON clients.city_id = cities.id GROUP BY city.name ORDER BY amount DESC LIMIT 8` - will now require gathering all data needed from shards and performing intermediate materialization for grouping, ordering and limiting.
 
+There are tools that helps you with that. I've tried several solutions, but none was versatile, configurable and stable enough that I could recommend it.
 
+### Make a wish-ard 
 
-###Synchronization of default data
-(+pol domyslne)
-hint: named lock
+We got to the point when you have to switch your application to sharding flow.
+To avoid having two versions of code - old one for still running monolithic design and a new one for sharding, we will just connect monolithic database as another "fake" shard.
 
-##Setting up environment
+There are two ways to do deal with auto increments:
 
-###Dispatch shard
-###User shards
-(similiar power, independent replicas, bigints)
+* Set up the same increment on your monolithic database as on shards and set up any free offset. This is the easiest way to avoid auto increment conflicts during the  migration, but also may be risky if you have tiny or small ints as your primary key fields. For example just adding three rows can overflow tiny int unsigned capacity of 255.
+* Calculate some buffer for every table and bump first auto increment for those tables on every shard. Now you do not have tiny/small integer overflow risk but at the same time your buffer may overflow if something will take unexpectedly long time during migration.
 
-###Even distribution of users
-(starzy maja historie/retencje/uzycie zaawansowanych funkcji)
+After that synchronize data on dispatch database - every client you have should point to this "fake" shard.
+Deploy your code changes to use dispatch logic.
 
-##Code changes
-rezerwacje procesow
-dispatch
-nowi userzy
-dane defaultowe
+### Checkpoint
 
-##Migracja
-exodus - jak uzywac
-dlugo trwa
-hint: uzyj historii zeby migrowac poza godzinami logowan przez uzytkownikow
-ponowne porzadki
+You should be running code with complete sharding logic but on reduced environment - with only one "fake" shard made out of your monolithic database. You may also already enable creating new client accounts on your real shards.
 
-##Niespodzianki
-odciazenie powoduje zwiekszenie czestotliwosci niektorych akcji
+Tons of small issues to fix will pop up at this point. Forgotten pieces of code, broken analytics tools, broken support panels, need of neutral or dispatch databases tune up.
+
+And then you are ready for the grande finale: clients migration.
+
+## Migrate clients to shards
+
+### Downtime semaphore
+
+You do not need any global downtime to perform clients data migration. Disabling your whole product for a few weeks would be unacceptable and would cause huge financial loses. But you need some mechanism to disable individual client access while it is migrated. Single flag in dispatch databases should do, but your code should be aware of it and present nice information screen for client when he tries to log in.
+
+### Timing
+
+If you have some history of your client habits - use it. For example if client is usually logging in at 10:00 and logging out at 11:00 schedule his migration to another hour. You may also figure out which timezones clients are in and schedule migration for the night for each of them. The migration process should be as transparent to client as possible. One day he should just log in and bam - fast and responsive product all of a sudden.
+
