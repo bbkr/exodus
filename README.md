@@ -2,6 +2,7 @@
 
 Comprehensive guide and tools to split monolithic database into shards.
 
+You can find most recent version of this tutorial at https://github.com/bbkr/exodus .
 
 ## Intro
 
@@ -387,11 +388,11 @@ Extra foreign key should be added between `clients` and `part` in our example.
 
 TL;DR
 
-Q: How many legs does the horse have?
-A: Eight. Two front, two rear, two left and two right.
+***Q:*** How many legs does the horse have?
 
-Q: How many legs does the horse have?
-A: Four. Those attached to it.
+***A1:*** Eight. Two front, two rear, two left and two right.
+
+***A2:*** Four. Those attached to it.
 
 ### Foreign key to not unique rows
 
@@ -705,13 +706,9 @@ There are tools that helps you with that. I've tried several solutions, but none
 We got to the point when you have to switch your application to sharding flow.
 To avoid having two versions of code - old one for still running monolithic design and a new one for sharding, we will just connect monolithic database as another "fake" shard.
 
-There are two ways to do deal with auto increments:
+First you have to deal with auto increments. Set up in the configuration the same increment on your monolithic database as on shards and set up any free offset. Then check what is the current auto increment value for every client or context table and set the same value for this table located on every shard. Now your primary keys won't collide between "fake" and real shards during the migration. But beware: this can easily overflow tiny or small ints in your monolithic database, for example just adding three rows can overflow tiny int unsigned capacity of 255.
 
-* Set up the same increment on your monolithic database as on shards and set up any free offset. This is the easiest way to avoid auto increment conflicts during the  migration, but also may be risky if you have tiny or small ints as your primary key fields. For example just adding three rows can overflow tiny int unsigned capacity of 255.
-* Calculate some buffer for every table and bump first auto increment for those tables on every shard. Now you do not have tiny/small integer overflow risk but at the same time your buffer may overflow if something will take unexpectedly long time during migration.
-
-After that synchronize data on dispatch database - every client you have should point to this "fake" shard.
-Deploy your code changes to use dispatch logic.
+After that synchronize data on dispatch database - every client you have should point to this "fake" shard. Deploy your code changes to use dispatch logic.
 
 ### Checkpoint
 
@@ -719,15 +716,124 @@ You should be running code with complete sharding logic but on reduced environme
 
 Tons of small issues to fix will pop up at this point. Forgotten pieces of code, broken analytics tools, broken support panels, need of neutral or dispatch databases tune up.
 
-And then you are ready for the grande finale: clients migration.
+And when you squash all the bugs it is time for grande finale: clients migration.
 
 ## Migrate clients to shards
 
 ### Downtime semaphore
 
-You do not need any global downtime to perform clients data migration. Disabling your whole product for a few weeks would be unacceptable and would cause huge financial loses. But you need some mechanism to disable individual client access while it is migrated. Single flag in dispatch databases should do, but your code should be aware of it and present nice information screen for client when he tries to log in.
+You do not need any global downtime to perform clients data migration. Disabling your whole product for a few weeks would be unacceptable and would cause huge financial loses. But you need some mechanism to disable access for individual clients while they are migrated. Single flag in dispatch databases should do, but your code should be aware of it and present nice information screen for client when he tries to log in. And of course do not modify clients data.
 
 ### Timing
 
 If you have some history of your client habits - use it. For example if client is usually logging in at 10:00 and logging out at 11:00 schedule his migration to another hour. You may also figure out which timezones clients are in and schedule migration for the night for each of them. The migration process should be as transparent to client as possible. One day he should just log in and bam - fast and responsive product all of a sudden.
 
+### Exodus tool
+
+Exodus was the tool used internally at GetResponse.com to split monolithic database into shards. And is still used to load balance sharding environment. It allows to extract subset of rows from relational database and build series of queries that can insert those rows to another relational database with the same schema.
+
+Fetch Exodus.pm from https://github.com/bbkr/exodus/tree/master/lib and create exodus.pl file in the same directory with the following content:
+
+```perl
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+my $database = DBI->connect(
+    'DBI:mysql:database=test;host=localhost',
+    'root', undef,
+    {'RaiseError' => 1}
+);
+
+my $exodus = Exodus->new(
+    'database' => $database,
+    'root'     => 'clients',
+);
+
+$exodus->extract( 'id' => 1 );
+```
+
+Of course provide proper credentials to connect to your monolithic database.
+
+Now when you call the script it will extract all data for client represented by record of `id` = 1 in `clients` root table. You can directly pipe it to another database to copy the client there.
+
+```
+./exodus.pl | mysql --host=my-shard-1 --user=....
+```
+
+Update dispatch shard for this client, check that product works for him and remove his rows from monolithic database.
+
+Repeat for every client.
+
+### MySQL issues
+
+Do not use user with SUPER grant to perform migration. Not because it is unsafe, but because they do not have locales loaded by default. You may end up with messed character encodings if you do so.
+
+MySQL is quite dumb when it comes to cascading DELETE operations. If you have such schema
+
+```
+            +----------+
+            | clients  |
+            +----------+
+ +----------| id       |----------------+
+ |          | login    |                |
+ |          | password |                |
+ |          +----------+                |
+ |                                      |
+ |  +-----------+        +-----------+  |
+ |  | foo       |        | bar       |  |
+ |  +-----------+        +-----------+  |
+ |  | id        |----+   | id        |  |
+ +-<| client_id |    |   | client_id |>-+
+    +------------+   +--<| foo_id    |
+                         +----------+
+```
+
+and all relations are ON DELETE CASCADE then sometimes it cannot resolve proper order and may try to delete data from `foo` table before data from `bar` table, causing constraint error. In such cases you must help it a bit and manually delete clients data from `bar` table before you will be able to delete row from `clients` table.
+
+### Virtual foreign keys
+
+Exodus allows you to manually add missing relations between tables, that couldn't be created in the regular way for some reasons (for example table engine does not support foreign keys).
+
+```perl
+my $exodus = Exodus->new(
+    'database' => $dbh,
+    'root' => 'clients',
+    'relations' => [
+        {
+            'nullable'      => 0,
+            'parent_table'  => 'foo',
+            'parent_column' => 'id'
+            'child_table'   => 'bar',
+            'child_column'  => 'foo_id',
+        },
+        { ... another one ...}
+    ]
+);
+```
+
+Note that if foreign key column can be NULL such relation should be marked as nullable.
+
+Also remember to delete rows from such table when your client migration is complete.
+Due to lack of foreign key it won't auto cascade.
+
+## Cleanup
+
+When all of your clients are migrated simply remove your "fake" shard from infrastructure.
+
+
+## Exodus roadmap
+
+I have a plans of refactoring this code to Perl 6 (it was prototyped in Perl 6, although back in the days when GetResponse introduced sharding Perl 6 was not fast or stable enough to deal with terabytes of data). It should get proper abstracts, more engines support and of course good test suite.
+
+YAPC NA 2016 "Pull request challenge" seems like a good day to begin :)
+
+## Contact
+
+If you have any questions about database sharding or want to contribute to this guide or Exodus tool contact me in person or on IRC as "bbkr".
+
+# Congratulations
+
+YOU'VE PROVEN TOO TOUGH FOR [monolithic database design] HELL TO CONTAIN
+(DOOM quote)
