@@ -728,38 +728,36 @@ You do not need any global downtime to perform clients data migration. Disabling
 
 If you have some history of your client habits - use it. For example if client is usually logging in at 10:00 and logging out at 11:00 schedule his migration to another hour. You may also figure out which timezones clients are in and schedule migration for the night for each of them. The migration process should be as transparent to client as possible. One day he should just log in and bam - fast and responsive product all of a sudden.
 
-### Exodus tool
+### UpRooted tool
 
-Exodus was the tool used internally at GetResponse.com to split monolithic database into shards. And is still used to load balance sharding environment. It allows to extract subset of rows from relational database and build series of queries that can insert those rows to another relational database with the same schema.
+Ready for some heavy lifting?
+[UpRooted](https://github.com/bbkr/UpRooted) tool for [Raku](https://www.raku.org) language allows to read tree of data from relational database and write it directly to another database. Here is example for MySQL:
 
-Fetch Exodus.pm from https://github.com/bbkr/exodus/tree/master/lib and create exodus.pl file in the same directory with the following content:
-
-```perl
-#!/usr/bin/env perl
-
-use strict;
-use warnings;
-
-my $database = DBI->connect(
-    'DBI:mysql:database=test;host=localhost',
-    'root', undef,
-    {'RaiseError' => 1}
-);
-
-my $exodus = Exodus->new(
-    'database' => $database,
-    'root'     => 'clients',
-);
-
-$exodus->extract( 'id' => 1 );
-```
-
-Of course provide proper credentials to connect to your monolithic database.
-
-Now when you call the script it will extract all data for client represented by record of `id` = 1 in `clients` root table. You can directly pipe it to another database to copy the client there.
 
 ```
-./exodus.pl | mysql --host=my-shard-1 --user=....
+    use DBIish;
+    use UpRooted::Schema::MySQL;
+    use UpRooted::Tree;
+    use UpRooted::Reader::MySQL;
+    use UpRooted::Writer::MySQL;
+    
+    my $monolithic-connection = DBIish.connect( 'mysql', host => ..., port => ..., ... );
+    my $shard-connection = DBIish.connect( 'mysql', host => ..., port => ..., ... );
+    
+    # discover schema
+    my $schema = UpRooted::Schema::MySQL.new( connection => $monolithic-connection );
+    
+    # define which table is root of data tree
+    my $tree = UpRooted::Tree.new( root-table => $schema.table( 'clients' ) );
+    
+    # monolithic database is the source of data
+    my $reader = UpRooted::Reader::MySQL.new( connection => $monolithic-connection, :$tree );
+
+    # shard database is destination for data
+    my $writer = UpRooted::Writer::MySQL.new( connection => $shard-connection );
+    
+    # start cloning client of id = 1
+    $writer.write( :$reader, id => 1 );
 ```
 
 Update dispatch shard for this client, check that product works for him and remove his rows from monolithic database.
@@ -792,42 +790,10 @@ MySQL is quite dumb when it comes to cascading DELETE operations. If you have su
 
 and all relations are ON DELETE CASCADE then sometimes it cannot resolve proper order and may try to delete data from `foo` table before data from `bar` table, causing constraint error. In such cases you must help it a bit and manually delete clients data from `bar` table before you will be able to delete row from `clients` table.
 
-### Virtual foreign keys
-
-Exodus allows you to manually add missing relations between tables, that couldn't be created in the regular way for some reasons (for example table engine does not support foreign keys).
-
-```perl
-my $exodus = Exodus->new(
-    'database' => $dbh,
-    'root' => 'clients',
-    'relations' => [
-        {
-            'nullable'      => 0,
-            'parent_table'  => 'foo',
-            'parent_column' => 'id'
-            'child_table'   => 'bar',
-            'child_column'  => 'foo_id',
-        },
-        { ... another one ...}
-    ]
-);
-```
-
-Note that if foreign key column can be NULL such relation should be marked as nullable.
-
-Also remember to delete rows from such table when your client migration is complete.
-Due to lack of foreign key it won't auto cascade.
 
 ## Cleanup
 
 When all of your clients are migrated simply remove your "fake" shard from infrastructure.
-
-
-## Exodus roadmap
-
-I have a plans of refactoring this code to Perl 6 (it was prototyped in Perl 6, although back in the days when GetResponse introduced sharding Perl 6 was not fast or stable enough to deal with terabytes of data). It should get proper abstracts, more engines support and of course good test suite.
-
-YAPC NA 2016 "Pull request challenge" seems like a good day to begin :)
 
 ## Contact
 
